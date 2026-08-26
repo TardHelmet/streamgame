@@ -269,7 +269,7 @@ const CFG = {
   skipAngle: 0.24, skipSpeed: 21,
   floorY: -25,
   camBack: 12.5, camUp: 3.4,
-  boostPerFish: 2.6, boostMax: 26,
+  boostPerFish: 2.0, boostMax: 26,
 };
 
 // ---------- palettes ----------
@@ -557,7 +557,10 @@ function drawCloud(c){
   const s=FL/A[2]*c.sc;
   const d=c.x-cam.x, fogF=1-Math.exp(-Math.max(0,d)*0.004);
   const col=mix(mix(PAL.cloud,PAL.fog,0.25+fogF*0.55), PAL.skyHor, 0.28);
-  ctx.globalAlpha=0.88;
+  // clouds you're flying past dissolve instead of swallowing the screen
+  const near=clamp(1.7 - s/(H*0.2), 0, 1);
+  if(near<=0.01) return;
+  ctx.globalAlpha=0.88*near;
   ctx.fillStyle=css(col);
   for(let i=0;i<6;i++){
     const ox=(hash(c.seed*13+i)-0.5)*3.4*s, oy=(hash(c.seed*17+i)-0.5)*0.42*s - i*0.03*s;
@@ -626,12 +629,59 @@ function fishAt(s){
   }
   return list;
 }
+function drawSchoolMarker(mx, seed){
+  const wl=waveH(mx,0);
+  const d=mx-cam.x; if(d<8) return;
+  if(!project(mx, wl+0.05, 0, A)) return;
+  const s=FL/A[2];
+  const al=clamp(1.2-d/420, 0.45, 0.95);
+  const pulse=0.85+0.15*Math.sin(time*3.2+seed);
+  // glowing bait-ball patch — sized with a screen-space floor so it reads far off
+  const pr=Math.max(s*8, 24*DPR)*pulse;
+  const rg=ctx.createRadialGradient(A[0],A[1],0,A[0],A[1],pr);
+  rg.addColorStop(0,`rgba(198,244,252,${0.6*al})`);
+  rg.addColorStop(0.4,`rgba(140,226,240,${0.32*al})`);
+  rg.addColorStop(1,'rgba(127,216,232,0)');
+  ctx.fillStyle=rg;
+  ctx.beginPath(); ctx.ellipse(A[0],A[1],pr,pr*0.34,0,0,TAU); ctx.fill();
+  // expanding ripples
+  for(let i=0;i<3;i++){
+    const ph=(time*0.6+i*0.33+seed*0.31)%1;
+    ctx.globalAlpha=al*(1-ph)*0.85;
+    ctx.strokeStyle=css([228,248,252]); ctx.lineWidth=Math.max(1.4,s*0.1);
+    ctx.beginPath(); ctx.ellipse(A[0],A[1],pr*(0.25+ph*0.95),pr*(0.09+ph*0.32),0,0,TAU); ctx.stroke();
+  }
+  // sparkle column rising off the water — the beacon
+  ctx.fillStyle=css([190,240,250]);
+  for(let i=0;i<5;i++){
+    const ph=(time*0.9+i*0.21+seed*0.53)%1;
+    const gx=A[0]+((hash(seed*13+i)-0.5)*3)*s;
+    const gy=A[1]-ph*4.4*s;
+    const gsz=Math.max(1.5,s*0.28)*(1-ph*0.5);
+    ctx.globalAlpha=al*Math.sin(ph*Math.PI)*0.9;
+    ctx.fillRect(gx-gsz/2, gy-gsz/2, gsz, gsz);
+  }
+  // little fish leaping clear of the water
+  ctx.fillStyle=css([215,244,252]);
+  for(let i=0;i<3;i++){
+    const ph=(time*1.25+i*0.37+seed*0.77)%1;
+    const lx=A[0]+((hash(seed*7+i)-0.5)*8)*s;
+    const ly=A[1]-Math.sin(ph*Math.PI)*3.6*s;
+    const sz=Math.max(2.2, s*0.8)*(0.7+0.5*hash(seed+i));
+    ctx.globalAlpha=al*Math.sin(ph*Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(lx+sz,ly); ctx.lineTo(lx-sz*0.6,ly-sz*0.4); ctx.lineTo(lx-sz*0.6,ly+sz*0.4);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
 function drawFish(f, underCam){
   const wig = Math.sin(time*6+f.ph)*0.3;
   if(!project(f.x, f.y+wig*0.12, f.z+wig*0.5, A)) return;
   const s = FL/A[2]*0.55;
   if(s<1) return;
-  ctx.globalAlpha = underCam?0.95:0.45;
+  const murk = underCam? clamp(Math.exp(-(f.x-cam.x-8)*0.05),0.06,1) : 1;
+  ctx.globalAlpha = (underCam?0.95:0.45)*murk;
   ctx.fillStyle = css([127,216,232]);
   ctx.beginPath();
   ctx.moveTo(A[0]+s, A[1]);
@@ -643,6 +693,11 @@ function drawFish(f, underCam){
   ctx.beginPath();
   ctx.moveTo(A[0]-s*0.45,A[1]); ctx.lineTo(A[0]-s*1.1,A[1]-s*0.4); ctx.lineTo(A[0]-s*1.1,A[1]+s*0.4);
   ctx.closePath(); ctx.fill();
+  if(underCam){ // soft halo so schools read through the murk
+    ctx.globalAlpha=0.25*murk;
+    ctx.strokeStyle=css([127,216,232]); ctx.lineWidth=Math.max(1,s*0.15);
+    ctx.beginPath(); ctx.arc(A[0],A[1],s*1.6,0,TAU); ctx.stroke();
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -752,9 +807,13 @@ function drawBoat(b){
     const db=(qb[0][0]+qb[2][0])/2-cam.x + Math.abs((qb[0][2]+qb[2][2])/2)*0.02;
     return db-da;
   });
+  const wl=waveH(b.x,b.zc);
+  const fogCol = camUnder? PAL.uwTop : PAL.fog;
+  const fogB = camUnder? 1-Math.exp(-Math.max(0.1,d)*0.04) : fogF;
   for(const f of faces){
+    if(camUnder && Math.min(f[0][1],f[1][1],f[2][1],f[3][1]) > wl+0.4) continue; // above the surface: unseen from below
     const n=triN(f[0],f[1],f[2]);
-    const col=mix(shade(n,f[4]), PAL.fog, fogF);
+    const col=mix(shade(n,f[4]), fogCol, fogB);
     if(f.length>5) quad3(f[0],f[1],f[2],f[3],col,f[5]);
     else quad3(f[0],f[1],f[2],f[3],col);
   }
@@ -819,6 +878,7 @@ function stepParts(dt){
 }
 function drawPart(p){
   const k=1-p.t/p.life;
+  if(camUnder && p.y > waveH(p.x,p.z)+0.4) return;
   if(!project(p.x,p.y,p.z,A)) return;
   const s=FL/A[2];
   if(p.type==='drop'){ ctx.globalAlpha=k*0.9; ctx.fillStyle=css([234,247,250]);
@@ -847,6 +907,7 @@ function drawPopups(dt){
   for(let i=popups.length-1;i>=0;i--){
     const p=popups[i]; p.t+=dt;
     if(p.t>1.25){ popups.splice(i,1); continue; }
+    if(camUnder && p.y > waveH(p.x,0)+0.5) continue;
     if(!project(p.x,p.y+p.t*2.4,p.z,A)) continue;
     ctx.globalAlpha = clamp(1.4-p.t,0,1);
     ctx.fillStyle = p.col;
@@ -1019,26 +1080,17 @@ function pushSea(birdUnder){
   });
 }
 function drawUnderBG(){
+  // no beams down here — just water going murky with depth and distance
   const depth=clamp((waveH(cam.x,0)-cam.y)/24,0,1);
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0, css(mix(PAL.uwTop,PAL.uwBot,depth*0.7)));
   g.addColorStop(1, css(PAL.uwBot));
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  if(PAL.el>-0.1 && (PAL.sunV>0.2 || PAL.starA>0.5)){
-    const rx = sunScreen? sunScreen[0] : W2, ry = sunScreen? Math.min(sunScreen[1],0) : -H*0.2;
-    ctx.save();
-    for(let i=0;i<6;i++){
-      const a=(i/6-0.5)*1.5 + Math.sin(time*0.3+i)*0.06;
-      ctx.globalAlpha=0.05+0.03*Math.sin(time*0.7+i*2);
-      ctx.fillStyle=css(PAL.sun);
-      ctx.beginPath();
-      ctx.moveTo(rx, ry);
-      ctx.lineTo(rx+Math.sin(a)*H*2-W*0.05, H*2);
-      ctx.lineTo(rx+Math.sin(a)*H*2+W*0.05, H*2);
-      ctx.closePath(); ctx.fill();
-    }
-    ctx.restore(); ctx.globalAlpha=1;
-  }
+  // faint murk band toward the horizon line so the far water closes in
+  const mg=ctx.createLinearGradient(0,H*0.2,0,H*0.55);
+  mg.addColorStop(0,'rgba(0,0,0,0)');
+  mg.addColorStop(1, css(mix(PAL.uwTop,PAL.uwBot,0.55),0.5));
+  ctx.fillStyle=mg; ctx.fillRect(0,H*0.2,W,H*0.4);
 }
 function pushUnderSurface(){
   const rows=seaRows();
@@ -1113,6 +1165,49 @@ function drawStreaks(){
     ctx.beginPath(); ctx.moveTo(xx,yy); ctx.lineTo(xx-len,yy+len*0.05); ctx.stroke();
   }
   ctx.globalAlpha=1;
+}
+
+// ---------- the ideal line: a flowing dashed arc through each ring series ----------
+function crPoint(p0,p1,p2,p3,t){
+  const t2=t*t, t3=t2*t;
+  return [
+    0.5*((2*p1[0]) + (-p0[0]+p2[0])*t + (2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2 + (-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
+    0.5*((2*p1[1]) + (-p0[1]+p2[1])*t + (2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2 + (-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)];
+}
+function drawGuide(){
+  if(state!=='play' || camUnder) return;
+  ctx.save();
+  ctx.setLineDash([6*DPR, 9*DPR]);
+  ctx.lineDashOffset = -time*36*DPR;
+  ctx.lineCap='round'; ctx.lineWidth=2*DPR;
+  const s0=Math.floor(cam.x/210), s1=s0+3;
+  for(let s=s0;s<=s1;s++){
+    const list=ringsAt(s); if(!list) continue;
+    const rem=list.filter(r=>!collected.has(r.id));
+    if(!rem.length) continue;
+    const first=rem[0], last=rem[rem.length-1];
+    if(last.x < bird.x-10) continue;
+    // approach and exit legs shaped like the flight itself: rise into high
+    // series after a swoop, dive into low ones — and back out again
+    const app = first.y>=12? [first.x-48, Math.max(2.5, first.y-16)] : [first.x-42, first.y+13];
+    const exi = last.y>=12?  [last.x+46,  Math.max(2.5, last.y-15)]  : [last.x+40, last.y+12];
+    const pts=[app, ...rem.map(r=>[r.x,r.y]), exi];
+    const ext=[pts[0], ...pts, pts[pts.length-1]];
+    const al=clamp(1-(first.x-bird.x)/380, 0.16, 0.5);
+    ctx.strokeStyle=`rgba(255,216,124,${al})`;
+    ctx.beginPath();
+    let started=false;
+    for(let i=0;i<pts.length-1;i++){
+      for(let k=0;k<=6;k++){
+        const p=crPoint(ext[i],ext[i+1],ext[i+2],ext[i+3],k/6);
+        if(p[0]<bird.x-6 || !project(p[0],p[1],0,A)){ started=false; continue; }
+        if(started) ctx.lineTo(A[0],A[1]);
+        else { ctx.moveTo(A[0],A[1]); started=true; }
+      }
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ---------- the Star Fox aiming reticle: shows the AIM, the bird follows ----------
@@ -1202,7 +1297,7 @@ function sfxTone(freqs, dur, vol, type){
   });
 }
 const S = {
-  flap : ()=> sfxNoise(0.13, 900, 300, 0.25, 'bandpass'),
+  flap : ()=> sfxNoise(0.28, 620, 140, 0.11, 'lowpass'),
   splashIn : (sp)=> sfxNoise(0.4, 2400, 300, clamp(sp/60,0.15,0.6)),
   splashOut: ()=> sfxNoise(0.28, 1400, 3400, 0.3, 'highpass'),
   skip : ()=> sfxNoise(0.14, 1800, 700, 0.28),
@@ -1499,21 +1594,30 @@ function physics(dt){
       }
     }
   }
-  // fish
+  // fish: dive INTO a school and you scoop the whole thing
   if(bird.under){
-    const f0=Math.floor((bird.x-20)/140), f1=Math.floor((bird.x+20)/140);
+    const f0=Math.floor((bird.x-25)/140), f1=Math.floor((bird.x+25)/140);
     for(let s=f0;s<=f1;s++){
       const list=fishAt(s); if(!list) continue;
-      for(const f of list){
-        if(collected.has(f.id)) continue;
-        if(Math.abs(bird.x-f.x)<2.4 && Math.abs(bird.y-f.y)<1.8 && Math.abs(bird.z-f.z)<2.3){
-          collected.add(f.id); fishEaten++; elFish.textContent=fishEaten;
-          bird.boost=Math.min(CFG.boostMax, bird.boost+CFG.boostPerFish);
-          addScore(50);
-          bubbles(f.x,f.y,f.z,5); S.fish(); popup(f.x,f.y,f.z,'+FISH','#7FD8E8');
-        }
+      let cx=0,n=0;
+      for(const f of list) if(!collected.has(f.id)){ cx+=f.x; n++; }
+      if(!n) continue; cx/=n;
+      if(Math.abs(bird.x-cx)<8.5 && bird.y>-10){
+        for(const f of list){ if(!collected.has(f.id)) collected.add(f.id); }
+        fishEaten+=n; elFish.textContent=fishEaten;
+        bird.boost=Math.min(CFG.boostMax, bird.boost+CFG.boostPerFish*n);
+        addScore(50*n);
+        bubbles(bird.x,bird.y,bird.z,12); S.fish();
+        popup(cx, bird.y+2, 0, '+'+n+' FISH','#7FD8E8');
       }
     }
+  }
+  // a shimmering school ahead? teach the dive
+  {
+    const s=Math.floor((bird.x+60)/140);
+    const list=fishAt(s);
+    if(list && list.some(f=>!collected.has(f.id)) && list[0].x-bird.x<220 && list[0].x>bird.x+30)
+      showHint('fishdive','<b>DIVE</b> into the shimmer to scoop the school',3.4);
   }
   if(collected.size>900){
     const arr=[...collected]; collected.clear();
@@ -1577,7 +1681,7 @@ function frame(ts){
     pushSeabed();
     pushUnderSurface();
   }
-  {
+  if(!camUnder){ // rings live in the sky: invisible from below the surface
     const s0=Math.floor(cam.x/210), s1=s0+3;
     for(let s=s1;s>=s0;s--){
       const list=ringsAt(s); if(!list) continue;
@@ -1588,7 +1692,9 @@ function frame(ts){
     const s0=Math.floor((cam.x-20)/140), s1=s0+2;
     for(let s=s1;s>=s0;s--){
       const list=fishAt(s); if(!list) continue;
-      for(const f of list){ if(!collected.has(f.id)) push(f.x-cam.x, ()=>drawFish(f,camUnder)); }
+      let cx=0,n=0;
+      for(const f of list){ if(!collected.has(f.id)){ cx+=f.x; n++; push(f.x-cam.x, ()=>drawFish(f,camUnder)); } }
+      if(n && !camUnder){ const mx=cx/n; push(mx-cam.x-0.5, ()=>drawSchoolMarker(mx, s)); }
     }
   }
   for(const b of boats){ if(b.x-cam.x<340) push(b.x-cam.x, ()=>drawBoat(b)); }
@@ -1596,6 +1702,7 @@ function frame(ts){
   push(bird.x-cam.x, drawBird);
   for(const p of parts) push(p.x-cam.x, ()=>drawPart(p));
   flushItems();
+  drawGuide();
   drawStreaks();
   drawReticle();
   drawPopups(dt);

@@ -158,7 +158,7 @@
   }
   @media (max-width:620px){
     .corner{min-width:0}
-    #corner-r{position:absolute;top:calc(58px + env(safe-area-inset-top));right:10px;
+    #corner-r{position:absolute;top:calc(104px + env(safe-area-inset-top));right:10px;
       flex-direction:column;align-items:flex-end;gap:6px}
     .chip{padding:5px 8px;font-size:11px}
     #speedbar{width:92px}
@@ -210,8 +210,9 @@
   <div id="wordmark">STARFLAPPY&nbsp;<em>64</em></div>
   <div id="tagline">Flap &middot; Dive &middot; Barrel Roll</div>
   <div id="howto">Night falls, and you fly into the dawn. <strong>Hold</strong> to flap, <strong>release</strong> to dive —
-    pierce the sea and swoop out faster. Steer with <strong>&#9664;&thinsp;&#9654;</strong> (or hold the left / right
-    side of the screen). Clear a whole ring series for a barrel roll. Watch for boats.</div>
+    pierce the sea and swoop out faster. Steer with <strong>&#9664;&thinsp;&#9654;</strong>; on touch, hold the
+    stick and nudge it — you aim the reticle, the bird follows. Clear a whole ring series for a barrel roll.
+    Watch for boats.</div>
   <div id="titlebest"></div>
   <div class="cta">HOLD TO FLY</div>
 </div>
@@ -246,13 +247,17 @@ function cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]
 // ---------- canvas ----------
 const cv = document.getElementById('view');
 const ctx = cv.getContext('2d');
-let W=0,H=0,W2=0,H2=0,DPR=1;
+let W=0,H=0,W2=0,H2=0,DPR=1,ZS=1;
 function resize(){
   DPR = Math.min(2, window.devicePixelRatio||1);
   W = cv.width  = Math.floor(innerWidth*DPR);
   H = cv.height = Math.floor(innerHeight*DPR);
   cv.style.width = innerWidth+'px'; cv.style.height = innerHeight+'px';
   W2=W/2; H2=H/2;
+  // lateral world scale: on narrow (portrait) screens the visible corridor is
+  // slimmer, so the strafe range and ring/fish z-spread shrink to stay on screen
+  const visHalf = (W2/(H*0.86))*13*0.8;
+  ZS = clamp(visHalf/7.5, 0.36, 1);
 }
 addEventListener('resize', resize); resize();
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -422,12 +427,13 @@ function quad3(a,b,c,d,col,alpha){
 const bird = {
   x:0, y:6, z:0, vx:16, vy:0, vz:0, speed:16,
   pitch:0, roll:0, yaw:0, flapT:0, fold:0.2, under:false, prevUnder:false,
-  flapCd:0, skipChain:0, boost:0,
+  flapCd:0, skipChain:0, boost:0, aimP:0, aimYaw:0,
 };
 function resetBird(){
   bird.x=0; bird.y=7; bird.z=0; bird.vx=17; bird.vy=0; bird.vz=0; bird.speed=17;
   bird.pitch=0; bird.roll=0; bird.yaw=0; bird.flapT=0; bird.fold=0.2;
   bird.under=false; bird.prevUnder=false; bird.flapCd=0; bird.skipChain=0; bird.boost=0;
+  bird.aimP=0; bird.aimYaw=0;
   cam.x=bird.x-CFG.camBack; cam.y=bird.y+CFG.camUp; cam.shake=0;
 }
 const WHITE=[246,250,252], SHADOW=[196,214,226], BUFF=[247,224,166],
@@ -590,7 +596,7 @@ function ringsAt(s){
       id:'r'+s+'_'+i, slot:s, i, n,
       x:x0+i*15,
       y:Math.max(4, y0 - arc*t*t*4 + arc*2*(0.25-t*t)),
-      z:clamp(z0 + Math.sin(i*0.9+s)*zswing, -6.5, 6.5),
+      z:clamp(z0 + Math.sin(i*0.9+s)*zswing, -6.5, 6.5)*ZS,
       r:3,
     });
   }
@@ -625,7 +631,7 @@ function fishAt(s){
   const list=[];
   for(let i=0;i<n;i++){
     list.push({id:'f'+s+'_'+i, x:x0+(hash(s*11+i)-0.5)*9, y:y0+(hash(s*13+i)-0.5)*2.2,
-               z:clamp(z0+(hash(s*19+i)-0.5)*5,-7,7), ph:hash(s+i)*TAU});
+               z:clamp(z0+(hash(s*19+i)-0.5)*5,-7,7)*ZS, ph:hash(s+i)*TAU});
   }
   return list;
 }
@@ -1118,10 +1124,11 @@ function drawStreaks(){
   ctx.globalAlpha=1;
 }
 
-// ---------- the Star Fox aiming reticle ----------
+// ---------- the Star Fox aiming reticle: shows the AIM, the bird follows ----------
 function drawReticle(){
   if(state!=='play') return;
-  const dir=norm3([Math.max(6,bird.vx), bird.vy, bird.vz]);
+  const cp=Math.cos(bird.aimP);
+  const dir=norm3([cp*Math.cos(bird.aimYaw), Math.sin(bird.aimP), cp*Math.sin(bird.aimYaw)]);
   const al = bird.under? 0.55 : 0.85;
   const pt=(t,out)=> project(bird.x+dir[0]*t, bird.y+dir[1]*t, bird.z+dir[2]*t, out);
   ctx.strokeStyle=`rgba(124,252,156,${al})`;
@@ -1156,6 +1163,38 @@ function drawReticle(){
     }
   }
   ctx.globalAlpha=1;
+}
+
+// ---------- the virtual thumbstick (touch) ----------
+function drawStick(){
+  if(!touchUI) return;
+  const g=stickGeom();
+  const bx=g.jx*DPR, by=g.jy*DPR, R=g.throwR*DPR*1.3;
+  const act=joy.active;
+  const pulse = (state!=='play' && !REDUCED)? 1+0.05*Math.sin(time*4) : 1;
+  ctx.lineWidth=2*DPR;
+  ctx.strokeStyle=`rgba(124,252,156,${act?0.8:0.4})`;
+  ctx.fillStyle=`rgba(10,34,49,${act?0.35:0.22})`;
+  ctx.beginPath(); ctx.arc(bx,by,R*pulse,0,TAU); ctx.fill(); ctx.stroke();
+  // direction ticks
+  ctx.strokeStyle=`rgba(124,252,156,${act?0.55:0.3})`;
+  for(let i=0;i<4;i++){
+    const a=i/4*TAU - Math.PI/2;
+    ctx.beginPath();
+    ctx.moveTo(bx+Math.cos(a)*R*1.08, by+Math.sin(a)*R*1.08);
+    ctx.lineTo(bx+Math.cos(a)*R*1.24, by+Math.sin(a)*R*1.24);
+    ctx.stroke();
+  }
+  // nub
+  const nx=bx+joy.x*g.throwR*DPR, ny=by-joy.y*g.throwR*DPR;
+  ctx.fillStyle=`rgba(124,252,156,${act?0.85:0.45})`;
+  ctx.beginPath(); ctx.arc(nx,ny,13*DPR*(act?1:0.85),0,TAU); ctx.fill();
+  if(state!=='play'){
+    ctx.textAlign='center';
+    ctx.font=`700 ${Math.round(12*DPR)}px "Chakra Petch",sans-serif`;
+    ctx.fillStyle='rgba(234,247,250,0.9)';
+    ctx.fillText('HOLD HERE', bx, by-R*1.45);
+  }
 }
 
 // ============================================================
@@ -1227,50 +1266,80 @@ function audioFrame(){
 }
 
 // ============================================================
-//  INPUT
+//  INPUT — desktop verbs + a fixed virtual thumbstick for touch.
+//  The stick steers the AIM (the reticle); the bird chases it.
 // ============================================================
-let holding=false, steerKeyL=false, steerKeyR=false, pointerSteer=0, pointerHeld=false;
-function inputSteer(){
-  let s=0;
-  if(steerKeyL) s-=1;
-  if(steerKeyR) s+=1;
-  if(pointerHeld) s+=pointerSteer;
-  return clamp(s,-1,1);
+let keyHold=false, keyDive=false, steerKeyL=false, steerKeyR=false, mouseHold=false;
+const joy={active:false, id:null, x:0, y:0};
+let touchUI = matchMedia('(pointer: coarse)').matches;
+function stickGeom(){
+  // base: horizontally centered, sitting just below the bottom-third line
+  return { jx:innerWidth/2, jy:innerHeight*0.76, throwR:52,
+           catchR:Math.max(70, Math.min(innerWidth,innerHeight)*0.17) };
 }
-function press(e){
+function setJoy(e){
+  const g=stickGeom();
+  joy.x=clamp((e.clientX-g.jx)/g.throwR,-1,1);
+  joy.y=clamp(-(e.clientY-g.jy)/g.throwR,-1,1);
+}
+function readInput(){
+  let hold=0, dive=0, steer=0;
+  if(keyHold||mouseHold) hold=1;
+  if(keyDive) dive=1;
+  if(steerKeyL) steer-=1;
+  if(steerKeyR) steer+=1;
+  if(joy.active){
+    const dz=0.12;
+    const ax=Math.abs(joy.x)>dz? (joy.x-Math.sign(joy.x)*dz)/(1-dz) : 0;
+    const ay=Math.abs(joy.y)>dz? (joy.y-Math.sign(joy.y)*dz)/(1-dz) : 0;
+    steer += ax*1.2;
+    if(ay>0) hold=Math.max(hold, Math.min(1, ay*1.3));
+    else     dive=Math.max(dive, Math.min(1,-ay*1.3));
+  }
+  return {hold:clamp(hold,0,1), dive:clamp(dive,0,1), steer:clamp(steer,-1,1)};
+}
+function press(){
   initAudio(); if(AC&&AC.state==='suspended')AC.resume();
-  holding=true;
   if(state==='title') startGame();
   else if(state==='dead' && deathT>0.9) restart();
 }
-function release(){ holding=false; pointerHeld=false; pointerSteer=0; }
-function pointerZone(x){
-  const w=innerWidth;
-  return x < w*0.36 ? -1 : x > w*0.64 ? 1 : 0;
-}
 addEventListener('pointerdown', e=>{
-  if(e.target.closest('button'))return;
-  pointerHeld=true; pointerSteer=pointerZone(e.clientX);
-  press(e);
+  if(e.target && e.target.closest && e.target.closest('button')) return;
+  if(e.pointerType==='touch' && !touchUI){ touchUI=true; touchCopy(); }
+  const g=stickGeom();
+  const inZone = Math.hypot(e.clientX-g.jx, e.clientY-g.jy) <= g.catchR;
+  if(inZone){
+    joy.active=true; joy.id=e.pointerId; setJoy(e); press();
+  } else if(e.pointerType!=='touch'){
+    mouseHold=true; press();     // classic hold-to-flap for mouse
+  }
+  // a touch outside the stick does nothing: the stick is the controller
 });
-addEventListener('pointermove', e=>{ if(pointerHeld) pointerSteer=pointerZone(e.clientX); });
-addEventListener('pointerup', release);
-addEventListener('pointercancel', release);
+addEventListener('pointermove', e=>{ if(joy.active && e.pointerId===joy.id) setJoy(e); });
+function joyEnd(e){
+  if(joy.active && e.pointerId===joy.id){ joy.active=false; joy.x=0; joy.y=0; }
+  if(e.pointerType!=='touch') mouseHold=false;
+}
+addEventListener('pointerup', joyEnd);
+addEventListener('pointercancel', joyEnd);
 addEventListener('keydown', e=>{
   if(e.code==='ArrowLeft'||e.code==='KeyA'){ e.preventDefault(); steerKeyL=true; return; }
   if(e.code==='ArrowRight'||e.code==='KeyD'){ e.preventDefault(); steerKeyR=true; return; }
+  if(e.code==='ArrowDown'||e.code==='KeyS'){ e.preventDefault(); keyDive=true; return; }
   if(e.repeat) return;
-  if(e.code==='Space'||e.code==='ArrowUp'){ e.preventDefault(); press(e); }
+  if(e.code==='Space'||e.code==='ArrowUp'){ e.preventDefault(); keyHold=true; press(); }
   else if(e.code==='KeyM') toggleMute();
   else if(e.code==='KeyR') restart();
 });
 addEventListener('keyup', e=>{
   if(e.code==='ArrowLeft'||e.code==='KeyA') steerKeyL=false;
   else if(e.code==='ArrowRight'||e.code==='KeyD') steerKeyR=false;
-  else if(e.code==='Space'||e.code==='ArrowUp') holding=false;
+  else if(e.code==='ArrowDown'||e.code==='KeyS') keyDive=false;
+  else if(e.code==='Space'||e.code==='ArrowUp') keyHold=false;
 });
-addEventListener('blur', ()=>{ holding=false; steerKeyL=steerKeyR=false; release(); });
-document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ holding=false; release(); } });
+function allRelease(){ keyHold=keyDive=steerKeyL=steerKeyR=mouseHold=false; joy.active=false; joy.x=joy.y=0; }
+addEventListener('blur', allRelease);
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) allRelease(); });
 
 // ============================================================
 //  HUD + STATE
@@ -1328,9 +1397,15 @@ function restart(){
   elGO.classList.remove('show');
   state='play'; elHud.classList.add('on'); elTitle.classList.add('off');
 }
+function touchCopy(){
+  if(!touchUI) return;
+  document.querySelectorAll('.cta').forEach(c=>{ c.textContent='HOLD THE STICK BELOW'; });
+}
+touchCopy();
 function startGame(){
   restart();
-  showHint('flap','<b>HOLD</b> to flap &amp; climb', 3.2);
+  showHint('flap', touchUI? 'Push the stick <b>UP</b> to flap &amp; climb'
+                          : '<b>HOLD</b> to flap &amp; climb', 3.2);
 }
 const CAUSES={
   jetski:'CLIPPED A JET SKI', fisher:'SMACKED A FISHING BOAT',
@@ -1356,13 +1431,16 @@ function die(cause){
 // ============================================================
 let prevX=0;
 function physics(dt){
-  let hold = holding, steer = inputSteer();
+  let inp = readInput();
+  let hold=inp.hold, dive=inp.dive, steer=inp.steer;
   if(state==='title'){
-    if(bird.under) hold = Math.atan2(bird.vy,bird.vx) < 1.15;
-    else hold = (bird.y < 4.5+2*Math.sin(time*0.35) && bird.vy < 4);
+    let h;
+    if(bird.under) h = Math.atan2(bird.vy,bird.vx) < 1.15;
+    else h = (bird.y < 4.5+2*Math.sin(time*0.35) && bird.vy < 4);
+    hold = h?1:0; dive=0;
     steer = Math.sin(time*0.23)*0.4;
   }
-  if(state==='dead'){ hold=false; steer=0; }
+  if(state==='dead'){ hold=0; dive=0; steer=0; }
   const wh = waveH(bird.x,bird.z);
   bird.prevUnder = bird.under;
   bird.under = bird.y < wh;
@@ -1373,16 +1451,22 @@ function physics(dt){
   if(bird.under){
     const depth = wh-bird.y;
     const grip = clamp(sp/11,0.15,1);
-    if(hold){ if(ang < 1.36) ang += CFG.turnWaterUp*grip*dt; }
-    else    { if(ang > -1.4) ang -= CFG.turnWaterDn*grip*dt; }
+    if(hold>0.02){
+      const aim = lerp(0.1, 1.36, hold);
+      if(ang < aim) ang = Math.min(aim, ang + CFG.turnWaterUp*grip*(0.3+0.7*hold)*dt);
+    } else if(dive>0.02){
+      if(ang > -1.4) ang -= CFG.turnWaterDn*grip*(0.6+0.9*dive)*dt;
+    } else {
+      if(ang > -1.4) ang -= CFG.turnWaterDn*grip*dt;
+    }
     let ns = sp;
     const kmax = CFG.kickMax + bird.boost;
-    if(hold && ns<kmax) ns += (CFG.kick + bird.boost*0.35)*dt;
+    if(hold>0.02 && ns<kmax) ns += (CFG.kick + bird.boost*0.35)*hold*dt;
     const drag = CFG.waterDrag*(1+Math.max(0,depth-7)*CFG.depthDrag);
     ns -= drag*ns*ns*dt;
     bird.vx = Math.cos(ang)*ns; bird.vy = Math.sin(ang)*ns;
     bird.vy += CFG.buoy*dt - CFG.g*dt*0.12;
-    if(hold && hash(Math.floor(time*9))>0.5) bubbles(bird.x-0.5,bird.y,bird.z,1);
+    if(hold>0.3 && hash(Math.floor(time*9))>0.5) bubbles(bird.x-0.5,bird.y,bird.z,1);
     // seabed: hitting it costs your fish boost, scaled by how hard you hit
     if(bird.y < floorH(bird.x,bird.z)+0.7){
       const impact=Math.max(0,-bird.vy);
@@ -1399,13 +1483,15 @@ function physics(dt){
     }
   } else {
     const grip = clamp(sp/26,0,1);
-    if(hold){
-      if(ang < 0.9) ang += CFG.turnAirUp*grip*dt;
+    if(hold>0.02){
+      const aim = lerp(0.05, 0.9, hold);
+      if(ang < aim) ang = Math.min(aim, ang + CFG.turnAirUp*grip*(0.3+0.7*hold)*dt);
       bird.vx=Math.cos(ang)*sp; bird.vy=Math.sin(ang)*sp;
       bird.flapCd -= dt;
-      if(bird.flapCd<=0){
+      if(bird.flapCd<=0 && hold>0.15){
         bird.flapCd = CFG.flapCd;
-        const power = clamp(1.35 - sp/46, 0.12, 1)
+        const power = hold
+                    * clamp(1.35 - sp/46, 0.12, 1)
                     * clamp(1 - bird.vy/13, 0.15, 1)
                     * clamp(1 - (bird.y-42)/26, 0.12, 1);
         bird.vy += CFG.flapVy*power;
@@ -1415,6 +1501,11 @@ function physics(dt){
           bird.vx=Math.cos(1.02)*s2; bird.vy=Math.sin(1.02)*s2; }
         S.flap();
       }
+    } else if(dive>0.02){
+      // committed dive: noses over even while still rising
+      if(ang > -1.42) ang -= CFG.turnAirDn*grip*(0.7+1.3*dive)*dt;
+      bird.vx=Math.cos(ang)*sp; bird.vy=Math.sin(ang)*sp;
+      bird.flapCd = 0;
     } else {
       if(ang > -1.42 && bird.vy<0) ang -= CFG.turnAirDn*grip*dt;
       bird.vx=Math.cos(ang)*sp; bird.vy=Math.sin(ang)*sp;
@@ -1429,12 +1520,13 @@ function physics(dt){
   }
 
   // ---- lateral steering (Star Fox corridor: camera fixed, bird strafes) ----
-  const steerMax = bird.under? CFG.steerWater : CFG.steerAir;
+  const zMax = CFG.zMax*ZS;
+  const steerMax = (bird.under? CFG.steerWater : CFG.steerAir)*(0.4+0.6*ZS);
   const vzT = steer*steerMax*(state==='dead'?0:1);
   bird.vz += clamp(vzT-bird.vz, -CFG.steerAcc*dt, CFG.steerAcc*dt);
   bird.z += bird.vz*dt;
-  if(bird.z > CFG.zMax){ bird.z=CFG.zMax; if(bird.vz>0)bird.vz=0; }
-  if(bird.z < -CFG.zMax){ bird.z=-CFG.zMax; if(bird.vz<0)bird.vz=0; }
+  if(bird.z > zMax){ bird.z=zMax; if(bird.vz>0)bird.vz=0; }
+  if(bird.z < -zMax){ bird.z=-zMax; if(bird.vz<0)bird.vz=0; }
 
   bird.x += bird.vx*dt;
   bird.y += bird.vy*dt;
@@ -1443,7 +1535,7 @@ function physics(dt){
   const nowUnder = bird.y < waveH(bird.x,bird.z);
   if(nowUnder && !bird.prevUnder){
     const entryAng=Math.atan2(bird.vy,bird.vx);
-    if(entryAng > -CFG.skipAngle && bird.speed > CFG.skipSpeed && !hold && state==='play'){
+    if(entryAng > -CFG.skipAngle && bird.speed > CFG.skipSpeed && hold<0.2 && state==='play'){
       bird.y = waveH(bird.x,bird.z)+0.06;
       bird.vy = Math.abs(bird.vy)*0.62+1.6;
       bird.vx *= 0.94;
@@ -1467,16 +1559,23 @@ function physics(dt){
   }
   bird.under = bird.y < waveH(bird.x,bird.z);
 
+  // aim (what the reticle shows; the bird's velocity chases the same targets)
+  const aimPT = hold>0.02? lerp(-0.08,0.82,hold)
+              : dive>0.02? lerp(-0.08,-1.15,dive)
+              : clamp(Math.atan2(bird.vy,Math.max(6,bird.vx)),-1.0,0.6)*0.65 - 0.05;
+  bird.aimP += (aimPT-bird.aimP)*Math.min(1,9*dt);
+  bird.aimYaw += (steer*0.36-bird.aimYaw)*Math.min(1,7*dt);
+
   // pose
   const tAng=Math.atan2(bird.vy,bird.vx);
   bird.pitch += (tAng-bird.pitch)*Math.min(1,10*dt);
   const rollT = state==='dead'? bird.roll+9*dt :
-    Math.sin(time*1.7)*0.05 - bird.vz*0.055 + (hold&&!bird.under? Math.sin(bird.flapT)*0.06:0);
+    Math.sin(time*1.7)*0.05 - bird.vz*0.055 + (hold>0.2&&!bird.under? Math.sin(bird.flapT)*0.06:0);
   bird.roll += (rollT-bird.roll)*Math.min(1,(state==='dead'?1:8)*dt);
   bird.yaw += (clamp(bird.vz*0.028,-0.5,0.5)-bird.yaw)*Math.min(1,7*dt);
-  const foldT = bird.under? 0.85 : (!hold && bird.vy<-4 ? clamp(-bird.pitch,0,1)*0.95 : 0.12);
+  const foldT = bird.under? 0.85 : (hold<0.2 && bird.vy<-4 ? clamp(-bird.pitch,0,1)*0.95 : 0.12);
   bird.fold += (foldT-bird.fold)*Math.min(1,6*dt);
-  if(!bird.under && hold) bird.flapT += dt*11*clamp(1.5-sp/40,0.4,1.2);
+  if(!bird.under && hold>0.2) bird.flapT += dt*11*clamp(1.5-sp/40,0.4,1.2)*(0.5+0.5*hold);
   else if(!bird.under) bird.flapT += dt*2.2;
   if(!bird.under && bird.y-wh<1.2 && bird.speed>18 && hash(Math.floor(time*30))>0.4)
     spawn('foam', bird.x, wh+0.03, bird.z, 0,0,0, 0.5, 0.25);
@@ -1485,9 +1584,11 @@ function physics(dt){
   if(state!=='play') return;
   dist = Math.max(dist, bird.x);
   if(dist>=nextMile){ toast(fmt(nextMile)+' M'); S.mile(); nextMile+=500; }
-  if(bird.y>13) showHint('dive','<b>RELEASE</b> to dive for speed',3.2);
+  if(bird.y>13) showHint('dive', touchUI? 'Pull the stick <b>DOWN</b> to dive for speed'
+                                        : '<b>RELEASE</b> to dive for speed',3.2);
   if(bird.speed>34 && dist>250) showHint('chain','Chain dives to fly faster ✦',3);
-  if(dist>120) showHint('steer','<b>◀ ▶</b> steer to line up rings',3.4);
+  if(dist>120) showHint('steer', touchUI? 'Nudge the stick to aim the <b>RETICLE</b> — you follow it'
+                                        : '<b>◀ ▶</b> steer to line up rings',3.4);
 
   // rings
   const s0=Math.floor((bird.x-40)/210), s1=Math.floor((bird.x+40)/210);
@@ -1538,7 +1639,7 @@ let last=0, hudAcc=0, flash=0, fpsN=0, fpsT=0, __fps=0;
 window.__game = {
   get fps(){return __fps;}, get bird(){return bird;}, get state(){return state;},
   get dist(){return dist;}, get score(){return score;}, get boats(){return boats;},
-  get gameT(){return gameT;},
+  get gameT(){return gameT;}, get input(){return readInput();}, get joy(){return joy;},
 };
 window.__dbg = {
   setTime:t=>{gameT=t;},
@@ -1608,6 +1709,7 @@ function frame(ts){
   flushItems();
   drawStreaks();
   drawReticle();
+  drawStick();
   drawPopups(dt);
 
   if(flash>0.01){

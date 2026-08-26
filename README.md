@@ -16,11 +16,18 @@ custom 3D engine, physics, world, audio synth — is inline.
 
 | Input | Action |
 | --- | --- |
-| Hold (tap / click / Space / ↑) | Flap and climb; underwater: kick and pull up |
+| Hold (click / Space / ↑) | Flap and climb; underwater: kick and pull up |
 | Release | Nose down and dive |
-| ◀ ▶ (or A/D, or hold the left/right side of the screen) | Steer across the corridor |
+| ◀ ▶ (or A/D) | Steer across the corridor |
+| ▼ (or S) | Committed dive — noses over even while rising |
 | M | Mute |
 | R | Restart |
+
+**Touch** uses a fixed virtual thumbstick, bottom-center in the lower third
+of the screen: hold it to fly, and nudge it — small movements aim the green
+reticle toward the horizon and the bird chases it. Up flaps, down dives,
+left/right strafes, all analog. Touches outside the stick don't fly the
+bird, so nothing is accidental.
 
 ## The rules of the sky
 

@@ -1032,7 +1032,7 @@ function seaRows(){
   for(let i=0;i<9;i++) rows.push(Math.max(x1+i*22, rows[rows.length-1]+6));
   return rows;
 }
-function facet(pA,pB,pC, base, fogF, jit){
+function facet(pA,pB,pC, base, fogF, jit, doStroke){
   if(!project(pA[0],pA[1],pA[2],A)||!project(pB[0],pB[1],pB[2],B)||!project(pC[0],pC[1],pC[2],C)) return;
   const n=triN(pA,pB,pC);
   const d=Math.abs(n[0]*L[0]+n[1]*L[1]+n[2]*L[2]);
@@ -1040,9 +1040,10 @@ function facet(pA,pB,pC, base, fogF, jit){
   let col=shadeCol(base,s);
   col=mix(col, PAL.seaLo, fogF);
   const cs=css(col);
-  ctx.fillStyle=cs; ctx.strokeStyle=cs; ctx.lineWidth=1;
+  ctx.fillStyle=cs;
   ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.lineTo(C[0],C[1]);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.closePath(); ctx.fill();
+  if(doStroke){ ctx.strokeStyle=cs; ctx.lineWidth=1; ctx.stroke(); }
 }
 function pushSea(birdUnder){
   const rows=seaRows();
@@ -1058,8 +1059,9 @@ function pushSea(birdUnder){
         const p00=[x0,waveH(x0,z0),z0], p01=[x0,waveH(x0,z1),z1],
               p10=[x1,waveH(x1,z0),z0], p11=[x1,waveH(x1,z1),z1];
         const j1=0.95+0.1*hash(x0*1.7+z0*3.1), j2=0.95+0.1*hash(x0*2.3+z1*1.9);
-        if((c+r)&1){ facet(p00,p10,p01, PAL.seaHi, fogF, j1); facet(p01,p10,p11, PAL.seaHi, fogF, j2); }
-        else       { facet(p00,p10,p11, PAL.seaHi, fogF, j1); facet(p00,p11,p01, PAL.seaHi, fogF, j2); }
+        const st = dmid<110 && Math.abs(z0)<80;   // seams are subpixel further out
+        if((c+r)&1){ facet(p00,p10,p01, PAL.seaHi, fogF, j1, st); facet(p01,p10,p11, PAL.seaHi, fogF, j2, st); }
+        else       { facet(p00,p10,p11, PAL.seaHi, fogF, j1, st); facet(p00,p11,p01, PAL.seaHi, fogF, j2, st); }
       }
       ctx.globalAlpha=1;
     });

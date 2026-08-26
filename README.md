@@ -1,10 +1,11 @@
-# Swoop
+# Starflappy 64
 
-A polygonal 3D momentum-flight game, 100% self-contained in one HTML file — no
-dependencies, no build step. You are a gannet with a camera on its tail: the
-bird flies forward on its own, Flappy-Bird style, but the trick to distance is
-Ecco-the-Dolphin physics — flap for height, dive to trade it for speed, pierce
-the sea, swoop through the water and launch back out faster, over and over.
+A polygonal 3D retro arcade flyer, 100% self-contained in one HTML file — no
+dependencies, no build step. Star Fox corridor flying meets Flappy Bird
+forward motion meets Ecco the Dolphin momentum: you are a gannet chased by
+the camera, flapping for height, diving into the sea, and swooping back out
+faster — while steering through ring series and dodging crossing boat
+traffic.
 
 ## Play
 
@@ -17,21 +18,42 @@ custom 3D engine, physics, world, audio synth — is inline.
 | --- | --- |
 | Hold (tap / click / Space / ↑) | Flap and climb; underwater: kick and pull up |
 | Release | Nose down and dive |
+| ◀ ▶ (or A/D, or hold the left/right side of the screen) | Steer across the corridor |
 | M | Mute |
 | R | Restart |
 
-Skim the surface at a shallow angle to stone-skip. Fly through gold rings,
-eat fish underwater for a burst of speed, and the sky cycles day → sunset →
-night → dawn every 2 600 m. Best distance is saved locally.
+## The rules of the sky
+
+- A green Star Fox-style reticle streams ahead of your beak so you can line
+  up in 3D.
+- **Rings score 100 each.** They come in series of 3–10, their colour
+  burning hotter toward the last ring. Clear a whole series and you do a
+  **barrel roll**: a waterspout erupts around you, every fish nearby is
+  sucked into it, and you auto-collect any ring you pass while it rages.
+- **Fish grant speed boost** that stacks — and lasts until you slam the
+  seabed, which knocks it off in proportion to how hard you hit.
+- Each run starts at **night** (~1 min); the sun rises ahead over ~30 s,
+  day lasts ~2 min, then ~30 s of twilight as the sun sets *behind* you —
+  you always fly into the dawn.
+- **When dawn breaks, the boats come out**: fast jet skis that barely dent
+  the water, fishing boats with nets cast visibly beneath them, and
+  container ships that wall off the sky. They cross your path from either
+  side, timed to meet you — fly over, dive under, or die. **Hitting any of
+  them ends the game.**
+
+Best score is saved locally.
 
 ## Tech notes
 
 - Custom perspective projection + painter-sorted flat-shaded triangles on a
   2D `<canvas>` — the whole world (faceted sea, islands, clouds, seabed,
-  the bird) is polygons.
+  boats, the bird) is polygons.
 - Physics is a velocity-vector model: gravity in air, buoyancy + kick + drag
   underwater; holding rotates the velocity vector upward (preserving speed),
-  which is what makes the water-swoop slingshot work.
-- The world is deterministic — islands, rings, fish schools and clouds are pure
-  functions of position slots, so it is endless with no spawner state.
-- Sound is synthesized with WebAudio (wind, splashes, chimes) — no assets.
+  which is what makes the water-swoop slingshot work. Lateral steering is a
+  bounded strafe: the camera never moves sideways, Star Fox corridor style.
+- The world is deterministic — islands, ring series, fish schools and clouds
+  are pure functions of position slots; boats are dynamic crossers timed
+  against your ETA so you can read the traffic before it arrives.
+- Sound is synthesized with WebAudio (wind, splashes, chimes, fog horns) —
+  no assets.

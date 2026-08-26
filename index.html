@@ -421,13 +421,13 @@ function quad3(a,b,c,d,col,alpha){
 const bird = {
   x:0, y:6, z:0, vx:16, vy:0, vz:0, speed:16,
   pitch:0, roll:0, yaw:0, flapT:0, fold:0.2, under:false, prevUnder:false,
-  flapCd:0, skipChain:0, boost:0, aimP:0, aimYaw:0,
+  flapCd:0, skipChain:0, boost:0, aimP:0, aimYaw:0, holdT:0,
 };
 function resetBird(){
   bird.x=0; bird.y=7; bird.z=0; bird.vx=17; bird.vy=0; bird.vz=0; bird.speed=17;
   bird.pitch=0; bird.roll=0; bird.yaw=0; bird.flapT=0; bird.fold=0.2;
   bird.under=false; bird.prevUnder=false; bird.flapCd=0; bird.skipChain=0; bird.boost=0;
-  bird.aimP=0; bird.aimYaw=0;
+  bird.aimP=0; bird.aimYaw=0; bird.holdT=0;
   cam.x=bird.x-CFG.camBack; cam.y=bird.y+CFG.camUp; cam.shake=0;
 }
 const WHITE=[246,250,252], SHADOW=[196,214,226], BUFF=[247,224,166],
@@ -1344,6 +1344,9 @@ function physics(dt){
     else dv = bird.y > 7+2*Math.sin(time*0.35) && bird.vy > -6; // dive when high
   }
   if(state==='dead') dv = false;
+  // the pull downward eases in: taps nudge, a committed hold becomes a plunge
+  if(dv) bird.holdT += dt; else bird.holdT = 0;
+  const ease = Math.pow(clamp(bird.holdT/1.15, 0, 1), 1.6);
   const wh = waveH(bird.x,bird.z);
   bird.prevUnder = bird.under;
   bird.under = bird.y < wh;
@@ -1358,7 +1361,7 @@ function physics(dt){
     const kmax = CFG.kickMax + bird.boost;
     if(dv){
       // dig deeper (fish live down here)
-      if(ang > -1.2) ang -= CFG.turnWaterDn*1.15*grip*dt;
+      if(ang > -1.2) ang -= CFG.turnWaterDn*1.15*(0.3+0.7*ease)*grip*dt;
       if(ns < kmax*0.85) ns += (CFG.kick*0.6 + bird.boost*0.2)*dt;
     } else {
       // release → swoop up and out
@@ -1387,9 +1390,10 @@ function physics(dt){
   } else {
     const grip = clamp(sp/26,0,1);
     if(dv){
-      // committed dive: fold and nose over, even while still rising
-      if(ang > -1.42) ang -= CFG.turnAirDn*2.1*grip*dt;
+      // the dive winds up: slow at first, then an ever-stronger pull down
+      if(ang > -1.42) ang -= CFG.turnAirDn*2.4*(0.15+0.85*ease)*grip*dt;
       bird.vx=Math.cos(ang)*sp; bird.vy=Math.sin(ang)*sp;
+      bird.vy -= CFG.g*0.32*ease*dt;
       bird.flapCd = 0;
     } else {
       // released → the bird flies itself back up
@@ -1449,7 +1453,7 @@ function physics(dt){
   bird.under = bird.y < waveH(bird.x,bird.z);
 
   // aim (what the reticle shows: where holding/releasing is taking you)
-  const aimPT = dv? -1.0 : (bird.under? 0.95 : 0.6);
+  const aimPT = dv? lerp(-0.18,-1.0,ease) : (bird.under? 0.95 : 0.6);
   bird.aimP += (aimPT-bird.aimP)*Math.min(1,8*dt);
   bird.aimYaw += (0-bird.aimYaw)*Math.min(1,7*dt);
 
@@ -1460,7 +1464,7 @@ function physics(dt){
     Math.sin(time*1.7)*0.05 + (!dv&&!bird.under? Math.sin(bird.flapT)*0.06:0);
   bird.roll += (rollT-bird.roll)*Math.min(1,(state==='dead'?1:8)*dt);
   bird.yaw += (0-bird.yaw)*Math.min(1,7*dt);
-  const foldT = bird.under? 0.85 : (dv ? 0.3+clamp(-bird.pitch,0,1)*0.65 : 0.12);
+  const foldT = bird.under? 0.85 : (dv ? 0.12+ease*0.55+clamp(-bird.pitch,0,1)*0.3 : 0.12);
   bird.fold += (foldT-bird.fold)*Math.min(1,6*dt);
   if(!bird.under && !dv) bird.flapT += dt*11*clamp(1.5-sp/40,0.4,1.2);
   else if(!bird.under) bird.flapT += dt*2.2;

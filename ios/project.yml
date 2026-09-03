@@ -1,0 +1,29 @@
+# XcodeGen spec — regenerate the project with `xcodegen generate` if you
+# would rather not use the committed .xcodeproj (brew install xcodegen).
+name: Starflappy64
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  Starflappy64:
+    type: application
+    platform: iOS
+    sources:
+      - path: Starflappy64
+        excludes:
+          - "web/**"
+          - "Info.plist"
+      - path: Starflappy64/web
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.starflappy64
+        INFOPLIST_FILE: Starflappy64/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Starflappy64/Starflappy64.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO

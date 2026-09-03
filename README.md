@@ -48,6 +48,49 @@ taking you, so you can plan entries, ring threads, and boat dodges.
 
 Best score is saved locally.
 
+## Async multiplayer & leaderboard
+
+Every run is scored and recorded as a **ghost** — a compact trace of the
+flight path. The leaderboard keeps each pilot's best run, and you race the
+ghost of the pilot one place above you (or pick anyone with **RACE** in the
+board): a translucent rival bird flies their recording in the same
+deterministic sky, with a live "VS NAME +23 M" delta in the HUD. Set your
+callsign from the board (trophy button); it is asked for after your first run.
+
+The game auto-detects where the board lives, in this order:
+
+| Backend | When | Scope |
+| --- | --- | --- |
+| `native` | inside the iOS app | Game Center (see `ios/`) |
+| `db` | published as a claude.ai artifact with the `db` capability | everyone in the artifact owner's organization, live |
+| `http` | `<meta name="sf-leaderboard" content="https://host">` or `window.SF_LEADERBOARD_URL` is set | anyone who can reach your server |
+| `local` | otherwise | this browser only |
+
+### Self-hosting the board
+
+```
+node server/leaderboard.js          # http://localhost:8787, zero dependencies
+```
+
+It stores one best entry per player (with ghost trace) in `server/data.json`
+and serves `GET /top?n=50`, `POST /submit`, `GET /health` with open CORS. Put
+it behind HTTPS, then point the game at it with the meta tag above. There is
+no anti-cheat — it is a friendly board.
+
+### Achievements
+
+First Flight, Kilometer Club, Long Haul, Do a Barrel Roll, Ten-Ring Circus,
+All You Can Eat, Under the Keel, Skipping Stone, Night Shift. They toast in
+the web build and report to Game Center on iOS.
+
+## iOS
+
+`ios/` holds a native app (SwiftUI + `WKWebView`) with a JavaScript ⇄ Swift
+bridge to Game Center: sign-in and access point, `sf64.score` /
+`sf64.distance` leaderboards, achievements, and **asynchronous 1v1 ghost
+races as turn-based matches**. See `ios/README.md` for setup and the App Store
+Connect IDs.
+
 ## Tech notes
 
 - Custom perspective projection + painter-sorted flat-shaded triangles on a

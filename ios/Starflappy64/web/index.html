@@ -1884,6 +1884,7 @@ const Net = {
       const i=this.board.findIndex(e=>e.id===Player.id);
       if(i>0) r=this.board[i-1];
       else if(i===0 && this.board.length>1) r=this.board[1];
+      else if(i===0) r=this.board[0];                      // alone up top: race your own best
       else if(i<0 && this.board.length) r=this.board[this.board.length-1];
     }
     if(r && (!this.rival || this.rival.id!==r.id || this.rival.ts!==r.ts)) this.setRivalFromEntry(r, null);
